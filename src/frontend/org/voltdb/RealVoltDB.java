@@ -133,6 +133,7 @@ import com.google_voltpatches.common.collect.ImmutableList;
 import com.google_voltpatches.common.util.concurrent.ListenableFuture;
 import com.google_voltpatches.common.util.concurrent.ListeningExecutorService;
 import com.google_voltpatches.common.util.concurrent.SettableFuture;
+import org.voltdb.importer.ImportManager;
 
 /**
  * RealVoltDB initializes global server components, like the messaging
@@ -440,6 +441,9 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
             }
             if (m_config.m_versionCompatibilityRegexOverrideForTest != null) {
                 m_hotfixableRegexPattern = m_config.m_versionCompatibilityRegexOverrideForTest;
+            }
+            if (m_config.m_buildStringOverrideForTest != null) {
+                m_buildString = m_config.m_buildStringOverrideForTest;
             }
 
             buildClusterMesh(isRejoin || m_joining);
@@ -765,16 +769,12 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
                             int.class,
                             String.class,
                             ClientInterface.class,
-                            byte.class,
-                            boolean.class,
-                            String.class);
+                            byte.class);
                     m_consumerDRGateway = (ConsumerDRGateway) rdrgwConstructor.newInstance(
                             m_messenger.getHostId(),
                             drProducerHost,
                             m_clientInterface,
-                            drConsumerClusterId,
-                            usingCommandLog,
-                            clSnapshotPath);
+                            drConsumerClusterId);
                     m_globalServiceElector.registerService(m_consumerDRGateway);
                 } catch (Exception e) {
                     VoltDB.crashLocalVoltDB("Unable to load DR system", true, e);
@@ -785,11 +785,13 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
              * Configure and start all the IV2 sites
              */
             try {
+                final String serializedCatalog = m_catalogContext.catalog.serialize();
                 boolean createMpDRGateway = true;
                 for (Initiator iv2init : m_iv2Initiators) {
                     iv2init.configure(
                             getBackendTargetType(),
                             m_catalogContext,
+                            serializedCatalog,
                             m_catalogContext.getDeployment().getCluster().getKfactor(),
                             csp,
                             m_configuredNumberOfPartitions,
@@ -1808,7 +1810,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
                 String parts[] = sb.toString().split(" ", 2);
                 if (parts.length == 2) {
                     parts[0] = parts[0].trim();
-                    parts[1] = parts[1].trim();
+                    parts[1] = parts[0] + "_" + parts[1].trim();
                     return parts;
                 }
             }
@@ -1837,7 +1839,10 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
         String buildInfo[] = extractBuildInfo(hostLog);
         m_versionString = buildInfo[0];
         m_buildString = buildInfo[1];
-        consoleLog.info(String.format("Build: %s %s %s", m_versionString, m_buildString, editionTag));
+        String buildString = m_buildString;
+        if (m_buildString.contains("_"))
+            buildString = m_buildString.split("_", 2)[1];
+        consoleLog.info(String.format("Build: %s %s %s", m_versionString, buildString, editionTag));
     }
 
     void logSystemSettingFromCatalogContext() {
@@ -1956,6 +1961,9 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
                 if (m_configLogger != null) {
                     m_configLogger.join();
                 }
+
+                //Shutdown import processors.
+                ImportManager.instance().shutdown();
 
                 // shut down Export and its connectors.
                 ExportManager.instance().shutdown();
@@ -2143,6 +2151,8 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
                 Integer partition = siteTracker.getPartitionForSite(site);
                 partitions.add(partition);
             }
+            // Update catalog for import processor this should be just/stop start and updat partitions.
+            ImportManager.instance().updateCatalog(m_catalogContext, m_messenger);
 
             // 1. update the export manager.
             ExportManager.instance().updateCatalog(m_catalogContext, partitions);
@@ -2360,6 +2370,9 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
             VoltDB.crashLocalVoltDB("HTTP service unable to bind to port.", true, e);
         }
 
+        //Tell import processors that they can start ingesting data.
+        ImportManager.instance().readyForData(m_catalogContext, m_messenger);
+
         if (m_config.m_startAction == StartAction.REJOIN) {
             consoleLog.info(
                     "Node data recovery completed after " + delta + " seconds with " + megabytes +
@@ -2531,6 +2544,9 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
             hostLog.l7dlog(Level.FATAL, LogKeys.host_VoltDB_ErrorStartHTTPListener.name(), e);
             VoltDB.crashLocalVoltDB("HTTP service unable to bind to port.", true, e);
         }
+
+        //Tell import processors that they can start ingesting data.
+        ImportManager.instance().readyForData(m_catalogContext, m_messenger);
 
         if (m_startMode != null) {
             m_mode = m_startMode;
@@ -2744,9 +2760,10 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback {
                         retval.set(null);
                     } else {
                         try {
-                            VoltDB.crashGlobalVoltDB("Local build string \"" + buildString +
-                                    "\" does not match cluster build string \"" +
-                                    new String(data, "UTF-8")  + "\"", false, null);
+                            hostLog.info("Different but compatible software versions on the cluster " +
+                                         "and the rejoining node. Cluster version is {" + (new String(data, "UTF-8")).split("_")[0] +
+                                         "}. Rejoining node version is {" + m_defaultVersionString + "}.");
+                            retval.set(null);
                         } catch (UnsupportedEncodingException e) {
                             retval.setException(new AssertionError(e));
                         }

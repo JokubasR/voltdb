@@ -17,6 +17,7 @@
 
 package org.voltdb.expressions;
 
+import org.voltdb.planner.parseinfo.StmtSubqueryScan;
 import org.voltdb.types.ExpressionType;
 
 /**
@@ -36,13 +37,30 @@ public class ScalarValueExpression extends AbstractValueExpression {
     @Override
     public boolean equals(Object obj) {
         assert(m_left != null);
-        return m_left.equals(obj);
+        if (obj instanceof ScalarValueExpression == false) return false;
+        ScalarValueExpression expr = (ScalarValueExpression) obj;
+        return m_left.equals(expr.getLeft());
+    }
+
+    @Override
+    public int hashCode() {
+        return m_left.hashCode();
     }
 
     @Override
     public String explain(String impliedTableName) {
         assert(m_left != null);
         return m_left.explain(impliedTableName);
+    }
+
+    /**
+     * Currently ScalarValueExpressions can only have a subquery as children.  Return
+     * the StmtSubqueryScan object for our child.
+     * @return StmtSubqueryScan object for subquery
+     */
+    public StmtSubqueryScan getSubqueryScan() {
+        SelectSubqueryExpression subqExpr = (SelectSubqueryExpression)m_left;
+        return subqExpr.getSubqueryScan();
     }
 
 }

@@ -15,37 +15,34 @@
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.voltdb.iv2;
+package org.voltdb.importer;
 
+import au.com.bytecode.opencsv_voltpatches.CSVParser;
 import java.io.IOException;
 
-import org.voltdb.PartitionDRGateway;
-
-import org.voltdb.rejoin.TaskLog;
-import org.voltdb.SiteProcedureConnection;
-
 /**
- * Pokes PartitionDRGateway once in a while to see if there are any data that
- * needs to be sent.
+ *
+ * @author akhanzode
  */
-public class DRTask extends SiteTasker {
-    private final PartitionDRGateway m_gateway;
+public class CSVInvocation implements Invocation {
 
-    public DRTask(PartitionDRGateway gateway) {
-        m_gateway = gateway;
+    private final String m_line;
+    private final String m_proc;
+    private final CSVParser m_parser = new CSVParser();
+
+    public CSVInvocation(String proc, String line) {
+        m_line = line;
+        m_proc = proc;
     }
 
     @Override
-    public void run(SiteProcedureConnection siteConnection) {
-        // IV2 doesn't use the txnId passed to tick, so pass a dummy value
-        m_gateway.tick(0);
+    public String getProcedure() {
+        return m_proc;
     }
 
     @Override
-    public void runForRejoin(SiteProcedureConnection siteConnection, TaskLog taskLog)
-    throws IOException
-    {
-        // no-op during rejoin
+    public Object[] getParams() throws IOException {
+        return m_parser.parseLine(m_line);
     }
 
 }
