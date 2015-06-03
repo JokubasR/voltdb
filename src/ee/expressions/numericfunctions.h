@@ -205,14 +205,35 @@ template<> inline NValue NValue::call<FUNC_POWER>(const std::vector<NValue>& arg
 template<> inline NValue NValue::call<FUNC_MOD>(const std::vector<NValue>& arguments) {
     assert(arguments.size() == 2);
     const NValue& base = arguments[0];
-    const NValue& mod = arguments[1];
-    NValue retval(VALUE_TYPE_DOUBLE);
-    double baseValue = base.castAsDoubleAndGetValue();
-    double modValue = mod.castAsIntegerAndGetValue();
-    double resultDouble = std::fmod(baseValue, modValue);
-    retval.getDouble() = resultDouble;
-    return retval;
-}
+    const NValue& divisor = arguments[1];
 
+    const ValueType baseType = base.getValueType();
+    const ValueType divisorType = divisor.getValueType();
+
+    // planner should guard against any invalid number type
+    if (!isNumeric(baseType) || !isNumeric(divisorType)) {
+        throw SQLException(SQLException::dynamic_sql_error, "unsupported non-numeric type for SQL MOD function");
+    }
+
+    bool areAllIntegralType = isIntegralType(baseType) && isIntegralType(divisorType);
+    const ValueType type = areAllIntegralType ? VALUE_TYPE_BIGINT : VALUE_TYPE_DOUBLE;
+    if (base.isNull() || divisor.isNull()) {
+        return getNullValue(type);
+    } else if (divisor.castAsDoubleAndGetValue() == 0) {
+        throw SQLException(SQLException::data_exception_division_by_zero, "Attempted to divide by 0");
+    }
+
+    if (areAllIntegralType) {
+        NValue retval(divisorType);
+        int64_t baseValue = base.castAsBigIntAndGetValue();
+        int64_t divisorValue = divisor.castAsBigIntAndGetValue();
+        return getBigIntValue(baseValue % divisorValue);
+    }
+
+    double baseValue = base.castAsDoubleAndGetValue();
+    double divisorValue = divisor.castAsDoubleAndGetValue();
+    double resultDouble = std::fmod(baseValue, divisorValue);
+    return getDoubleValue(resultDouble);
+}
 
 }
