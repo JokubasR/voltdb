@@ -2104,6 +2104,7 @@ public class DDLCompiler {
             List<AbstractExpression> aggregationExprs = new ArrayList<AbstractExpression>();
             boolean hasAggregationExprs = false;
             boolean hasMinOrMaxAgg = false;
+            boolean hasOnlyOneDistinctMinOrMaxAggExpr = false;
             ArrayList<AbstractExpression> minMaxAggs = new ArrayList<AbstractExpression>();
             for (int i = stmt.m_groupByColumns.size() + 1; i < stmt.m_displayColumns.size(); i++) {
                 ParsedColInfo col = stmt.m_displayColumns.get(i);
@@ -2116,6 +2117,13 @@ public class DDLCompiler {
                         col.expression.getExpressionType() == ExpressionType.AGGREGATE_MAX) {
                     hasMinOrMaxAgg = true;
                     minMaxAggs.add(aggExpr);
+                    /* 
+                     * ENG-6511: If we only have one type of min/max agg expr, we can try to
+                     * find an index that is built on group-by columns and the min/max agg expr
+                     * to achieve better performance. (ATTENTION: it's agg expr not agg)
+                     * e.g. min(c1) and max(c1), min(c1+2) and max(c1+2) share the same expr.
+                     */
+                    hasOnlyOneDistinctMinOrMaxAggExpr = aggExpr.equals(minMaxAggs.get(0));
                 }
             }
 
@@ -2132,10 +2140,10 @@ public class DDLCompiler {
             }
 
             if (hasMinOrMaxAgg) {
-                // TODO: deal with minMaxAggs, i.e. if only one min/max agg, try to find the index
-                // with group by cols followed by this agg col; if multiple min/max aggs, decide
-                // what to do (probably the index on group by cols is the best choice)
-                Index found = findBestMatchIndexForMatviewMinOrMax(matviewinfo, srcTable, groupbyExprs);
+                // ENG-6511: If we have only one distinct min/max agg expr, we will pass it into 
+                // index searching function to see if a better index can be found.
+                AbstractExpression singleDistinctMinMaxAggExpr = hasOnlyOneDistinctMinOrMaxAggExpr ? minMaxAggs.get(0) : null;
+                Index found = findBestMatchIndexForMatviewMinOrMax(matviewinfo, srcTable, groupbyExprs, singleDistinctMinMaxAggExpr);
                 if (found != null) {
                     matviewinfo.setIndexforminmax(found.getTypeName());
                 } else {
@@ -2179,28 +2187,43 @@ public class DDLCompiler {
     //   -- *indexes on the group keys as a prefix before other indexed values.
     //   -- indexes on the group keys PLUS the MIN/MAX argument value (to eliminate post-filtering)
     private static Index findBestMatchIndexForMatviewMinOrMax(MaterializedViewInfo matviewinfo,
-            Table srcTable, List<AbstractExpression> groupbyExprs)
+            Table srcTable, List<AbstractExpression> groupbyExprs, AbstractExpression singleDistinctMinMaxAggExpr)
     {
         CatalogMap<Index> allIndexes = srcTable.getIndexes();
         StmtTableScan tableScan = new StmtTargetTableScan(srcTable, srcTable.getTypeName());
 
+        Index candidate = null; // Candidate index
         for (Index index : allIndexes) {
             boolean matchedAll = true;
+            // coveredAll == true if the index covers both group-by columns and the min/max agg expr.
+            boolean coveredAll = false;
             // Match based on one of two algorithms depending on whether expressions are all simple columns.
+            String expressionjson = index.getExpressionsjson();
+            // No complex group-by's (i.e. all group-by columns are column refs)
             if (groupbyExprs == null) {
-                String expressionjson = index.getExpressionsjson();
-                if ( ! expressionjson.isEmpty()) {
-                    continue;
+                // Get all indexed exprs if there is any.
+                List<AbstractExpression> indexedExprs = null;
+                if ( ! expressionjson.isEmpty() ) {
+                    try {
+                        indexedExprs = AbstractExpression.fromJSONArrayString(expressionjson, tableScan);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                        assert(false);
+                        return null;
+                    }
                 }
+                // Get source table columns.
+                List<Column> srcColumnArray = CatalogUtil.getSortedCatalogItems(srcTable.getColumns(), "index");       
                 List<ColumnRef> indexedColRefs =
                         CatalogUtil.getSortedCatalogItems(index.getColumns(), "index");
                 List<ColumnRef> groupbyColRefs =
-                        CatalogUtil.getSortedCatalogItems(matviewinfo.getGroupbycols(), "index");
-                if (indexedColRefs.size() != groupbyColRefs.size()) {
+                        CatalogUtil.getSortedCatalogItems(matviewinfo.getGroupbycols(), "index");                
+                
+                int diff = indexedColRefs.size() - groupbyColRefs.size();
+                if ( diff < 0 ) {
                     continue;
                 }
-
-                for (int i = 0; i < indexedColRefs.size(); ++i) {
+                for (int i = 0; i < groupbyColRefs.size(); ++i) {
                     int groupbyColIndex = groupbyColRefs.get(i).getColumn().getIndex();
                     int indexedColIndex = indexedColRefs.get(i).getColumn().getIndex();
                     if (groupbyColIndex != indexedColIndex) {
@@ -2208,8 +2231,44 @@ public class DDLCompiler {
                         break;
                     }
                 }
+                if ( ! matchedAll ) {
+                    continue;
+                }
+                if ( singleDistinctMinMaxAggExpr == null ) {
+                    if ( diff != 0 ) {
+                        continue;
+                    }
+                }
+                else {
+                    // agg expr is a column
+                    if ( diff > 1 ) { // diff already >= 0
+                        continue;
+                    }
+                    if (singleDistinctMinMaxAggExpr instanceof TupleValueExpression) {
+                        if ( diff == 1 ) {
+                            int aggSrcColIdx = ((TupleValueExpression)singleDistinctMinMaxAggExpr).getColumnIndex();
+                            Column aggSrcCol = srcColumnArray.get(aggSrcColIdx);
+                            if (aggSrcCol.equals(indexedColRefs.get(indexedColRefs.size() - 1).getColumn())) {
+                                coveredAll = true;
+                            }
+                            else {
+                                continue;
+                            }
+                        }
+                    }
+                    else {
+                        if ( indexedExprs.size() != 0 ) {
+                            if (indexedExprs.get(indexedExprs.size() - 1).equals(singleDistinctMinMaxAggExpr)) {
+                                coveredAll = true;
+                            }
+                            else {
+                                continue;
+                            }
+                        }
+                    }
+                }
             } else {
-                String expressionjson = index.getExpressionsjson();
+                // has complex group-bys
                 if (expressionjson.isEmpty()) {
                     continue;
                 }
@@ -2221,14 +2280,31 @@ public class DDLCompiler {
                     assert(false);
                     return null;
                 }
-                if (indexedExprs.size() != groupbyExprs.size()) {
+                int diff = indexedExprs.size() - groupbyExprs.size();
+                // indexedExprs.size() - groupbyExprs.size() == 0 or 1.
+                if ( diff > 1 || diff < 0 ) {
                     continue;
                 }
-
-                for (int i = 0; i < indexedExprs.size(); ++i) {
+                // diff == 1 means min/max agg expr may be present in index.
+                // but if singleDistinctMinMaxAggExpr == null then useless.
+                if (diff == 1 && singleDistinctMinMaxAggExpr == null) {
+                    continue;
+                }
+                for (int i = 0; i < groupbyExprs.size(); ++i) {
                     if ( ! indexedExprs.get(i).equals(groupbyExprs.get(i))) {
                         matchedAll = false;
                         break;
+                    }
+                }
+                if ( ! matchedAll ) {
+                    continue;
+                }
+                if ( diff == 1 ) {
+                    if (indexedExprs.get(indexedExprs.size() - 1).equals(singleDistinctMinMaxAggExpr)) {
+                        coveredAll = true;
+                    }
+                    else {
+                        continue;
                     }
                 }
             }
@@ -2252,10 +2328,15 @@ public class DDLCompiler {
                 matchedAll = SubPlanAssembler.isPartialIndexPredicateIsCovered(tableScan, coveringExprs, index, exactMatchCoveringExprs);
             }
             if (matchedAll) {
-                return index;
+                if ( coveredAll ) {
+                    return index;
+                }
+                else {
+                    candidate = index;
+                }
             }
         }
-        return null;
+        return candidate;
     }
 
     /**
