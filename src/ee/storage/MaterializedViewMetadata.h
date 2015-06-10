@@ -134,6 +134,10 @@ private:
     // storage to hold the value for the search key
     char *m_searchKeyBackingStore;
 
+    std::vector<NValue> m_minMaxSearchKeyValue;
+    TableTuple m_minMaxSearchKeyTuple;
+    char *m_minMaxSearchKeyBackingStore;
+
     // which columns in the source table
 
     // what are the indexes of columns in the src table for
