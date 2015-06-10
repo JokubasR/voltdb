@@ -220,7 +220,7 @@ template<> inline NValue NValue::call<FUNC_MOD>(const std::vector<NValue>& argum
     if (base.isNull() || divisor.isNull()) {
         return getNullValue(type);
     } else if (divisor.castAsDoubleAndGetValue() == 0) {
-        throw SQLException(SQLException::data_exception_division_by_zero, "Attempted to divide by 0");
+        throw SQLException(SQLException::data_exception_division_by_zero, "division by zero");
     }
 
     if (areAllIntegralType) {

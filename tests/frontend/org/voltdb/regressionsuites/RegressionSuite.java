@@ -395,7 +395,7 @@ public class RegressionSuite extends TestCase {
         }
     }
 
-    static public void validateRowOfLongs(String messagePrefix, VoltTable vt, long [] expected) {
+    static private void validateRowOfLongs(String messagePrefix, VoltTable vt, long [] expected) {
         int len = expected.length;
         assertTrue(vt.advanceRow());
         for (int i=0; i < len; i++) {
@@ -440,6 +440,33 @@ public class RegressionSuite extends TestCase {
 
     static public void validateRowOfLongs(VoltTable vt, long [] expected) {
         validateRowOfLongs(null, vt, expected);
+    }
+
+    static public void validateTableOfScalarDoubles(Client client, String sql, double[] expected) throws Exception {
+        assertNotNull(expected);
+        VoltTable vt = client.callProcedure("@AdHoc", sql).getResults()[0];
+
+        assertEquals("Different number of rows! ", expected.length, vt.getRowCount());
+        int len = expected.length;
+        for (int i=0; i < len; i++) {
+            validateRowOfDoubles(vt, new double[] {expected[i]});
+        }
+    }
+
+    static private void validateRowOfDoubles(VoltTable vt, double[] expected) {
+        int len = expected.length;
+        assertTrue(vt.advanceRow());
+
+        for (int i=0; i < len; i++) {
+            double actual = vt.getDouble(i);
+
+            // NULL double value stored in VoltDB
+            if (actual == Double.MIN_VALUE) {
+                assertTrue(vt.wasNull());
+            } else {
+                assertEquals(expected[i], actual, 0.00001);
+            }
+        }
     }
 
     static public void validateTableColumnOfScalarVarchar(VoltTable vt, String[] expected) {

@@ -57,28 +57,27 @@ public class TestFunctionsSuite extends RegressionSuite {
     private static final String paddedToNonInlineLength =
         "will you still free me (will memcheck see me) when Im sixty-four";
 
-
-
-
-    public void testMod() throws IOException, InterruptedException, ProcCallException {
-         System.out.println("STARTING testFoundHSQLBackendOutOfRange");
+    public void testMod() throws Exception {
+         System.out.println("STARTING testMod");
          Client client = getClient();
-         ClientResponse cr = null;
 
-         client.callProcedure("@AdHoc", "INSERT INTO P1 VALUES (2, 'wEoiXIuJwSIKBujWv', -405636, 1.38145922788945552107e-01, NULL)");
+         client.callProcedure("@AdHoc", "INSERT INTO R1 VALUES (2, '', -10, 2.3, NULL)");
 
-         cr = client.callProcedure("@AdHoc", "select MOD(10,4) from P1");
-         VoltTable r = cr.getResults()[0];
-         long l=r.getLong(1);
-         assertEquals(l, 2);
+         // integral types
+         validateTableOfScalarLongs(client, "select MOD(25,7) from R1", new long[]{4});
+         validateTableOfScalarLongs(client, "select MOD(-25,7) from R1", new long[]{-4});
 
-         cr = client.callProcedure("@AdHoc", "select MOD(ID,4) from P1");
-         r = cr.getResults()[0];
-         l=r.getLong(1);
-         assertEquals(l, 2);
+         // Edge case: MOD 0
+         verifyStmtFails(client, "select MOD(-25,0) from R1", "division by zero");
+         verifyStmtFails(client, "select MOD(25.4,0) from R1", "division by zero");
+
+         // double types
+         validateTableOfScalarDoubles(client, "select MOD(25.4,7) from R1", new double[]{4.4});
+         validateTableOfScalarDoubles(client, "select MOD(25.4,7.2) from R1", new double[]{3.8});
+         validateTableOfScalarDoubles(client, "select MOD(-25.4,7) from R1", new double[]{-4.4});
+         validateTableOfScalarDoubles(client, "select MOD(-25.4,0) from R1", new double[]{-25.4});
+
      }
-
-
 
     // Test some false alarm cases in HSQLBackend that were interfering with sqlcoverage.
     public void testFoundHSQLBackendOutOfRange() throws IOException, InterruptedException, ProcCallException {
