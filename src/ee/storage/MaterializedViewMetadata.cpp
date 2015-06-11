@@ -35,8 +35,6 @@
 #include "storage/persistenttable.h"
 #include "boost/foreach.hpp"
 #include "boost/shared_array.hpp"
-#include <iostream>
-using namespace std;
 
 namespace voltdb {
 
@@ -132,7 +130,11 @@ void MaterializedViewMetadata::setIndexForMinMax(std::string indexForMinOrMax)
         for (int i = 0; i < candidates.size(); i++) {
             if (indexForMinOrMax.compare(candidates[i]->getName()) == 0) {
                 m_indexForMinMax = candidates[i];
-                m_minMaxSearchKeyValue = std::vector<NValue>(m_indexForMinMax->getColumnIndices().size());
+                // If the index for min / max aggs contains the agg exprs / cols, we need to 
+                // create a seprate search key value vector for it. (ENG-6511)
+                if ( minMaxIndexIncludesAggCol() ) {
+                    m_minMaxSearchKeyValue = std::vector<NValue>(m_indexForMinMax->getColumnIndices().size());
+                }
                 break;
             }
         }
@@ -162,7 +164,8 @@ void MaterializedViewMetadata::allocateBackedTuples()
     }
 
     m_minMaxSearchKeyBackingStore = NULL;
-    if (m_indexForMinMax) {
+    // If the minMaxIndex contains agg cols, need to allocate a searchKeyTuple and backing store for it. (ENG-6511)
+    if ( minMaxIndexIncludesAggCol() ) {
         m_minMaxSearchKeyTuple = TableTuple(m_indexForMinMax->getKeySchema());
         m_minMaxSearchKeyBackingStore = new char[m_indexForMinMax->getKeySchema()->tupleLength() + 1];
         memset(m_minMaxSearchKeyBackingStore, 0, m_indexForMinMax->getKeySchema()->tupleLength() + 1);
@@ -310,11 +313,7 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
     NValue newVal = initialNull;
     IndexCursor minMaxCursor(m_indexForMinMax->getTupleSchema());
 
-    // See if the index is just built on group by columns or it also includes min/max agg (ENG-6511)
-    bool indexIncludesAggCol = m_indexForMinMax->getColumnIndices().size() == m_groupByColumnCount + 1;
-    // cout << endl << "indexIncludesAggCol = " << (indexIncludesAggCol ? "true" : "false") << endl;
-    // cout << "m_indexForMinMax: " << m_indexForMinMax->debug() << endl;
-    if (indexIncludesAggCol) {
+    if ( minMaxIndexIncludesAggCol() ) {
         for (int colindex = 0; colindex < m_groupByColumnCount; colindex++) {
             NValue value = getGroupByValueFromSrcTuple(colindex, oldTuple);
             m_minMaxSearchKeyValue[colindex] = value;
@@ -323,7 +322,6 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
         NValue oldValue = getAggInputFromSrcTuple(aggIndex, oldTuple);
         m_minMaxSearchKeyValue[m_groupByColumnCount] = oldValue;
         m_minMaxSearchKeyTuple.setNValue(m_groupByColumnCount, oldValue);
-        // cout << "m_minMaxSearchKeyTuple " << m_minMaxSearchKeyTuple.debugNoHeader() << endl;
         TableTuple tuple;
         // Min
         if (negate_for_min == -1) {
@@ -334,18 +332,8 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
             m_indexForMinMax->moveToGreaterThanKey(&m_minMaxSearchKeyTuple, minMaxCursor);
             m_indexForMinMax->moveToPriorEntry(minMaxCursor);
         }
-        // if ( ! m_filterPredicate ) {
-        //     cout << "No predicate!" << endl;
-        // }
-        // else {
-        //     cout << "m_filterPredicate: " << m_filterPredicate->debug(true) << endl;
-        // }
         while (!(tuple = m_indexForMinMax->nextValue(minMaxCursor)).isNullTuple()) {
             // skip the oldTuple and apply post filter
-            // cout << "Scanning tuple: " << tuple.debugNoHeader() << endl;
-            // if ( m_filterPredicate ) {
-            //     cout << "predicate eval: " << ( m_filterPredicate->eval(&tuple, NULL).isTrue() ? "true" : "false") << endl;
-            // }
             if (tuple.equals(oldTuple) ||
                 (m_filterPredicate && !m_filterPredicate->eval(&tuple, NULL).isTrue())) {
                 continue;
@@ -357,7 +345,6 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
             newVal = current;
             break;
         }
-        // cout << newVal.debug() << endl;
     }
     else {
         m_indexForMinMax->moveToKey(&m_searchKeyTuple, minMaxCursor);
