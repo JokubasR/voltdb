@@ -2105,6 +2105,7 @@ public class DDLCompiler {
             boolean hasAggregationExprs = false;
             boolean hasMinOrMaxAgg = false;
             boolean hasOnlyOneDistinctMinOrMaxAggExpr = false;
+
             ArrayList<AbstractExpression> minMaxAggs = new ArrayList<AbstractExpression>();
             for (int i = stmt.m_groupByColumns.size() + 1; i < stmt.m_displayColumns.size(); i++) {
                 ParsedColInfo col = stmt.m_displayColumns.get(i);
@@ -2220,9 +2221,10 @@ public class DDLCompiler {
                         CatalogUtil.getSortedCatalogItems(matviewinfo.getGroupbycols(), "index");
 
                 int diff = indexedColRefs.size() - groupbyColRefs.size();
-                if ( diff < 0 ) {
+                if ( diff < 0 ) { // indexedColRefs.size() >= groupbyColRefs.size()
                     continue;
                 }
+                // compare group by columns.
                 for (int i = 0; i < groupbyColRefs.size(); ++i) {
                     int groupbyColIndex = groupbyColRefs.get(i).getColumn().getIndex();
                     int indexedColIndex = indexedColRefs.get(i).getColumn().getIndex();
@@ -2234,17 +2236,19 @@ public class DDLCompiler {
                 if ( ! matchedAll ) {
                     continue;
                 }
+                // If the index doesn't contain agg cols / exprs, indexedColRefs.size() == groupbyColRefs.size() must be true.
                 if ( singleDistinctMinMaxAggExpr == null ) {
                     if ( diff != 0 ) {
                         continue;
                     }
                 }
                 else {
-                    // agg expr is a column
-                    if ( diff > 1 ) { // diff already >= 0
+                    if ( diff > 1 ) { // only one agg col / expr is supported at most.
                         continue;
                     }
+                    // agg column
                     if (singleDistinctMinMaxAggExpr instanceof TupleValueExpression) {
+                        // the index we are checking has something more than group by columns.
                         if ( diff == 1 ) {
                             int aggSrcColIdx = ((TupleValueExpression)singleDistinctMinMaxAggExpr).getColumnIndex();
                             Column aggSrcCol = srcColumnArray.get(aggSrcColIdx);
@@ -2255,7 +2259,9 @@ public class DDLCompiler {
                                 continue;
                             }
                         }
+                        // otherwise it means the index we are checking on only contains group by columns. (not best candidate)
                     }
+                    // agg expr
                     else {
                         if ( indexedExprs.size() != 0 ) {
                             if (indexedExprs.get(indexedExprs.size() - 1).equals(singleDistinctMinMaxAggExpr)) {
@@ -2328,9 +2334,12 @@ public class DDLCompiler {
                 matchedAll = SubPlanAssembler.isPartialIndexPredicateIsCovered(tableScan, coveringExprs, index, exactMatchCoveringExprs);
             }
             if (matchedAll) {
+                // if the index already covered group by columns and the agg col / expr,
+                // it is already the best index we can get, then immediately return.
                 if ( coveredAll ) {
                     return index;
                 }
+                // otherwise wait to see something better may come up.
                 else {
                     candidate = index;
                 }

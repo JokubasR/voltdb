@@ -306,7 +306,7 @@ public:
 
     virtual void moveToPriorEntry(IndexCursor& cursor) const
     {
-        throwFatalException("Invoked TableIndex virtual method moveToBeforePriorEntry which has no implementation");
+        throwFatalException("Invoked TableIndex virtual method moveToPriorEntry which has no implementation");
     }
 
     /**
