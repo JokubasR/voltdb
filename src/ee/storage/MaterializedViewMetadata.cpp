@@ -309,11 +309,11 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
     }
     NValue newVal = initialNull;
     IndexCursor minMaxCursor(m_indexForMinMax->getTupleSchema());
-    cout << "m_indexForMinMax->getTupleSchema()" << m_indexForMinMax->getTupleSchema()->debug() << endl;
 
     // See if the index is just built on group by columns or it also includes min/max agg (ENG-6511)
     bool indexIncludesAggCol = m_indexForMinMax->getColumnIndices().size() == m_groupByColumnCount + 1;
-    cout << "indexIncludesAggCol = " << (indexIncludesAggCol ? "true" : "false") << endl;
+    // cout << endl << "indexIncludesAggCol = " << (indexIncludesAggCol ? "true" : "false") << endl;
+    // cout << "m_indexForMinMax: " << m_indexForMinMax->debug() << endl;
     if (indexIncludesAggCol) {
         for (int colindex = 0; colindex < m_groupByColumnCount; colindex++) {
             NValue value = getGroupByValueFromSrcTuple(colindex, oldTuple);
@@ -323,40 +323,67 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
         NValue oldValue = getAggInputFromSrcTuple(aggIndex, oldTuple);
         m_minMaxSearchKeyValue[m_groupByColumnCount] = oldValue;
         m_minMaxSearchKeyTuple.setNValue(m_groupByColumnCount, oldValue);
-        cout << "add existingTuple to m_searchKeyTuple: " << oldValue.debug() << endl;
-        cout << m_minMaxSearchKeyTuple.debugNoHeader() << endl;
-    }
-    bool ret;
-    if (indexIncludesAggCol) {
-        ret = m_indexForMinMax->moveToKey(&m_minMaxSearchKeyTuple, minMaxCursor);
-    }
-    else {
-        ret = m_indexForMinMax->moveToKey(&m_searchKeyTuple, minMaxCursor);
-        cout << m_searchKeyTuple.debugNoHeader() << endl;
-    }
-    cout << "moveToKey: " << (ret ? "true" : "false") << endl;
-    VOLT_TRACE("Starting to scan tuples using index %s\n", m_indexForMinMax->debug().c_str());
-    TableTuple tuple;
-    while (!(tuple = m_indexForMinMax->nextValueAtKey(minMaxCursor)).isNullTuple()) {
-        // skip the oldTuple and apply post filter
-        if (tuple.equals(oldTuple) ||
-            (m_filterPredicate && !m_filterPredicate->eval(&tuple, NULL).isTrue())) {
-            continue;
+        // cout << "m_minMaxSearchKeyTuple " << m_minMaxSearchKeyTuple.debugNoHeader() << endl;
+        TableTuple tuple;
+        // Min
+        if (negate_for_min == -1) {
+            m_indexForMinMax->moveToKeyOrGreater(&m_minMaxSearchKeyTuple, minMaxCursor);
         }
-        VOLT_TRACE("Scanning tuple: %s\n", tuple.debugNoHeader().c_str());
-        NValue current = (aggExpr) ? aggExpr->eval(&tuple, NULL) : tuple.getNValue(srcColIdx);
-        if (current.isNull()) {
-            continue;
+        // Max
+        else {
+            m_indexForMinMax->moveToGreaterThanKey(&m_minMaxSearchKeyTuple, minMaxCursor);
+            m_indexForMinMax->moveToPriorEntry(minMaxCursor);
         }
-        if (current.compare(existingValue) == 0) {
+        // if ( ! m_filterPredicate ) {
+        //     cout << "No predicate!" << endl;
+        // }
+        // else {        
+        //     cout << "m_filterPredicate: " << m_filterPredicate->debug(true) << endl;
+        // }
+        while (!(tuple = m_indexForMinMax->nextValue(minMaxCursor)).isNullTuple()) {
+            // skip the oldTuple and apply post filter
+            // cout << "Scanning tuple: " << tuple.debugNoHeader() << endl;
+            // if ( m_filterPredicate ) {
+            //     cout << "predicate eval: " << ( m_filterPredicate->eval(&tuple, NULL).isTrue() ? "true" : "false") << endl;
+            // }
+            if (tuple.equals(oldTuple) ||
+                (m_filterPredicate && !m_filterPredicate->eval(&tuple, NULL).isTrue())) {
+                continue;
+            }
+            NValue current = (aggExpr) ? aggExpr->eval(&tuple, NULL) : tuple.getNValue(srcColIdx);
+            if (current.isNull()) {
+                continue;
+            }
             newVal = current;
-            VOLT_TRACE("Found another tuple with same min / max value, breaking the loop.\n");
             break;
         }
-        VOLT_TRACE("\tBefore: current %s, best %s\n", current.debug().c_str(), newVal.debug().c_str());
-        if (newVal.isNull() || (negate_for_min * current.compare(newVal)) > 0) {
-            newVal = current;
-            VOLT_TRACE("\tAfter: new best %s\n", newVal.debug().c_str());
+        // cout << newVal.debug() << endl;
+    }
+    else {
+        m_indexForMinMax->moveToKey(&m_searchKeyTuple, minMaxCursor);
+        VOLT_TRACE("Starting to scan tuples using index %s\n", m_indexForMinMax->debug().c_str());
+        TableTuple tuple;
+        while (!(tuple = m_indexForMinMax->nextValueAtKey(minMaxCursor)).isNullTuple()) {
+            // skip the oldTuple and apply post filter
+            if (tuple.equals(oldTuple) ||
+                (m_filterPredicate && !m_filterPredicate->eval(&tuple, NULL).isTrue())) {
+                continue;
+            }
+            VOLT_TRACE("Scanning tuple: %s\n", tuple.debugNoHeader().c_str());
+            NValue current = (aggExpr) ? aggExpr->eval(&tuple, NULL) : tuple.getNValue(srcColIdx);
+            if (current.isNull()) {
+                continue;
+            }
+            if (current.compare(existingValue) == 0) {
+                newVal = current;
+                VOLT_TRACE("Found another tuple with same min / max value, breaking the loop.\n");
+                break;
+            }
+            VOLT_TRACE("\tBefore: current %s, best %s\n", current.debug().c_str(), newVal.debug().c_str());
+            if (newVal.isNull() || (negate_for_min * current.compare(newVal)) > 0) {
+                newVal = current;
+                VOLT_TRACE("\tAfter: new best %s\n", newVal.debug().c_str());
+            }
         }
     }
     return newVal;
