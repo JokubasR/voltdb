@@ -337,7 +337,7 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
         // if ( ! m_filterPredicate ) {
         //     cout << "No predicate!" << endl;
         // }
-        // else {        
+        // else {
         //     cout << "m_filterPredicate: " << m_filterPredicate->debug(true) << endl;
         // }
         while (!(tuple = m_indexForMinMax->nextValue(minMaxCursor)).isNullTuple()) {

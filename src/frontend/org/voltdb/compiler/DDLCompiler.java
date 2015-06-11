@@ -2117,7 +2117,7 @@ public class DDLCompiler {
                         col.expression.getExpressionType() == ExpressionType.AGGREGATE_MAX) {
                     hasMinOrMaxAgg = true;
                     minMaxAggs.add(aggExpr);
-                    /* 
+                    /*
                      * ENG-6511: If we only have one type of min/max agg expr, we can try to
                      * find an index that is built on group-by columns and the min/max agg expr
                      * to achieve better performance. (ATTENTION: it's agg expr not agg)
@@ -2140,7 +2140,7 @@ public class DDLCompiler {
             }
 
             if (hasMinOrMaxAgg) {
-                // ENG-6511: If we have only one distinct min/max agg expr, we will pass it into 
+                // ENG-6511: If we have only one distinct min/max agg expr, we will pass it into
                 // index searching function to see if a better index can be found.
                 AbstractExpression singleDistinctMinMaxAggExpr = hasOnlyOneDistinctMinOrMaxAggExpr ? minMaxAggs.get(0) : null;
                 Index found = findBestMatchIndexForMatviewMinOrMax(matviewinfo, srcTable, groupbyExprs, singleDistinctMinMaxAggExpr);
@@ -2213,12 +2213,12 @@ public class DDLCompiler {
                     }
                 }
                 // Get source table columns.
-                List<Column> srcColumnArray = CatalogUtil.getSortedCatalogItems(srcTable.getColumns(), "index");       
+                List<Column> srcColumnArray = CatalogUtil.getSortedCatalogItems(srcTable.getColumns(), "index");
                 List<ColumnRef> indexedColRefs =
                         CatalogUtil.getSortedCatalogItems(index.getColumns(), "index");
                 List<ColumnRef> groupbyColRefs =
-                        CatalogUtil.getSortedCatalogItems(matviewinfo.getGroupbycols(), "index");                
-                
+                        CatalogUtil.getSortedCatalogItems(matviewinfo.getGroupbycols(), "index");
+
                 int diff = indexedColRefs.size() - groupbyColRefs.size();
                 if ( diff < 0 ) {
                     continue;
