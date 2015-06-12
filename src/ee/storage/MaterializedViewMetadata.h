@@ -68,7 +68,7 @@ public:
     }
 
     // See if the index is just built on group by columns or it also includes min/max agg (ENG-6511)
-    bool minMaxIndexIncludesAggCol() 
+    bool minMaxIndexIncludesAggCol()
     {
         if ( ! m_indexForMinMax) { return false; }
         return m_indexForMinMax->getColumnIndices().size() == m_groupByColumnCount + 1;

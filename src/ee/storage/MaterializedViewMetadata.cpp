@@ -130,7 +130,7 @@ void MaterializedViewMetadata::setIndexForMinMax(std::string indexForMinOrMax)
         for (int i = 0; i < candidates.size(); i++) {
             if (indexForMinOrMax.compare(candidates[i]->getName()) == 0) {
                 m_indexForMinMax = candidates[i];
-                // If the index for min / max aggs contains the agg exprs / cols, we need to 
+                // If the index for min / max aggs contains the agg exprs / cols, we need to
                 // create a seprate search key value vector for it. (ENG-6511)
                 if ( minMaxIndexIncludesAggCol() ) {
                     m_minMaxSearchKeyValue = std::vector<NValue>(m_indexForMinMax->getColumnIndices().size());
