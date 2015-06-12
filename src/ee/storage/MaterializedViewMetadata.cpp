@@ -320,8 +320,8 @@ NValue MaterializedViewMetadata::findMinMaxFallbackValueIndexed(const TableTuple
             m_minMaxSearchKeyTuple.setNValue(colindex, value);
         }
         NValue oldValue = getAggInputFromSrcTuple(aggIndex, oldTuple);
-        m_minMaxSearchKeyValue[m_groupByColumnCount] = oldValue;
-        m_minMaxSearchKeyTuple.setNValue(m_groupByColumnCount, oldValue);
+        m_minMaxSearchKeyValue[(int)m_groupByColumnCount] = oldValue;
+        m_minMaxSearchKeyTuple.setNValue((int)m_groupByColumnCount, oldValue);
         TableTuple tuple;
         // Min
         if (negate_for_min == -1) {
