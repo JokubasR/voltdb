@@ -2194,9 +2194,9 @@ public class DDLCompiler {
         CatalogMap<Index> allIndexes = srcTable.getIndexes();
         StmtTableScan tableScan = new StmtTargetTableScan(srcTable, srcTable.getTypeName());
 
-        // Candidate index. If we can find an index covering both group-by columns and agg expr (optimal) then we will 
+        // Candidate index. If we can find an index covering both group-by columns and agg expr (optimal) then we will
         // return immediately. If the index found covers only group-by columns (sub-optimal), we will first cache it here.
-        Index candidate = null; 
+        Index candidate = null;
         for (Index index : allIndexes) {
             // System.out.println("Testing index " + index.getTypeName());
             // matchedAll == ture if the index covered all group-by columns (sub-optimal candidate).
@@ -2233,7 +2233,7 @@ public class DDLCompiler {
                         CatalogUtil.getSortedCatalogItems(index.getColumns(), "index");
                     // The number of columns in index can never be less than that in the group-by column list.
                     // If singleDistinctMinMaxAggExpr == null, they must be equal (diffAllowance == 0)
-                    // Otherwise they may be equal (sub-optimal) or 
+                    // Otherwise they may be equal (sub-optimal) or
                     // indexedColRefs.size() == groupbyColRefs.size() + 1 (optimal, diffAllowance == 1)
                     if ( indexedColRefs.size() < groupbyColRefs.size() ||
                          indexedColRefs.size() > groupbyColRefs.size() + diffAllowance ) {
@@ -2252,7 +2252,7 @@ public class DDLCompiler {
                         continue;
                     }
                     // Compare the min/max agg expr if we got one.
-                    if ( singleDistinctMinMaxAggExpr != null &&  
+                    if ( singleDistinctMinMaxAggExpr != null &&
                          indexedColRefs.size() == groupbyColRefs.size() + diffAllowance ) {
                         // We have singleDistinctMinMaxAggExpr and the index also has one extra column
                         if ( ! (singleDistinctMinMaxAggExpr instanceof TupleValueExpression) ) {
