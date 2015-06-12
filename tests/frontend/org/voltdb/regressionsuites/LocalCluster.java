@@ -112,6 +112,10 @@ public class LocalCluster implements VoltServerConfig {
     //This is additional process invironment variables that can be passed.
     // This is used to pass JMX port. Any additional use cases can use this too.
     private Map<String, String> m_additionalProcessEnv = null;
+    protected final Map<String, String> getAdditionalProcessEnv() {
+        return m_additionalProcessEnv;
+    }
+
     // Produce a (presumably) available IP port number.
     public final PortGeneratorForTest portGenerator = new PortGeneratorForTest();
     private String m_voltdbroot = "";

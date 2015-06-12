@@ -86,12 +86,15 @@ public class VoltDecimalHelper {
 
     private final static String m_defaultRoundingMode = "HALF_UP";
 
+    public static boolean enabled = true;
+    public static RoundingMode mode = RoundingMode.HALF_UP;
+
     static public byte[] getUnscaledBytes(BigDecimal bd) throws IOException {
         if (bd == null) {
             return Arrays.copyOf(NULL_INDICATOR, NULL_INDICATOR.length);
         }
         if (bd.scale() > kDefaultScale) {
-            bd = roundToScale(bd, kDefaultScale, RoundingMode.HALF_UP);
+            bd = roundToScale(bd, kDefaultScale, getRoundingMode());
         }
         int scale = bd.scale();
         int precision = bd.precision();
@@ -149,12 +152,13 @@ public class VoltDecimalHelper {
     }
 
     private static final boolean isRoundingEnabled() {
-        return Boolean.valueOf(System.getProperty(m_roundingEnabledProperty, m_defaultRoundingEnablement));
+        return enabled;
     }
 
     private static final RoundingMode getRoundingMode() {
-        return RoundingMode.valueOf(System.getProperty(m_roundingModeProperty, m_defaultRoundingMode).toUpperCase());
+        return mode;
     }
+
     /**
      * Round a BigDecimal number to a scale given the rounding mode.
      * Note that rounding may return the precision.  For example,
@@ -176,12 +180,10 @@ public class VoltDecimalHelper {
         int desiredPrecision = bd.precision() - lostScaleDigits;
         MathContext mc = new MathContext(desiredPrecision, mode);
         BigDecimal nbd = bd.round(mc);
-        if (nbd.precision() != desiredPrecision) {
-            desiredPrecision += 1;
-            mc = new MathContext(desiredPrecision, mode);
-            nbd = bd.round(mc);
+        if (nbd.scale() != scale) {
+            nbd = nbd.setScale(scale);
         }
-        assert(nbd.scale() <= scale);
+        assert(nbd.scale() == scale);
         return nbd;
     }
 
@@ -198,7 +200,7 @@ public class VoltDecimalHelper {
               return;
           }
           if (bd.scale() > 12) {
-              bd = roundToScale(bd, kDefaultScale, RoundingMode.HALF_UP);
+              bd = roundToScale(bd, kDefaultScale, getRoundingMode());
           }
           int scale = bd.scale();
           int precision = bd.precision();
@@ -234,7 +236,7 @@ public class VoltDecimalHelper {
         if (bd.scale() > kDefaultScale) {
             bd = bd.stripTrailingZeros();
             if (bd.scale() > kDefaultScale) {
-                bd = roundToScale(bd, kDefaultScale, RoundingMode.HALF_UP);
+                bd = roundToScale(bd, kDefaultScale, getRoundingMode());
             }
         }
         // enforce scale 12 to make the precision check right
@@ -270,6 +272,6 @@ public class VoltDecimalHelper {
 
     public static BigDecimal setDefaultScale(BigDecimal bd) {
         // TODO Auto-generated method stub
-        return bd.setScale(kDefaultScale, RoundingMode.HALF_EVEN);
+        return bd.setScale(kDefaultScale, getRoundingMode());
     }
 }
